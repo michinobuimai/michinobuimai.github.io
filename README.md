@@ -1,2 +1,0 @@
-# michinobuimai.github.io
-test
