@@ -1,27 +1,1100 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Michinobu Imai</title>
-  <link rel="stylesheet" href="style.css" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Local Box Map Editor</title>
+  <style>
+    :root {
+      --bg: #050505;
+      --panel: #121820;
+      --panel-2: #1b2630;
+      --line: #e9eef5;
+      --accent: #0d4258;
+      --accent-2: #2b8bb8;
+      --text: #f2f5f7;
+      --muted: #9eacb7;
+      --danger: #ff5f62;
+      --shadow: 0 18px 45px rgba(0,0,0,.38);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+    body {
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      user-select: none;
+    }
+
+    #app { position: fixed; inset: 0; background: #000; }
+
+    #toolbar {
+      position: fixed;
+      top: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 30;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      padding: 8px;
+      background: rgba(18, 24, 32, .84);
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 999px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(14px);
+    }
+
+    .tool-btn {
+      border: 0;
+      color: var(--text);
+      background: var(--panel-2);
+      padding: 9px 13px;
+      border-radius: 999px;
+      cursor: pointer;
+      font-weight: 700;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+    .tool-btn:hover { background: #253648; }
+    .tool-btn.danger { background: rgba(255, 95, 98, .14); color: #ffb5b7; }
+    .tool-btn.danger:hover { background: rgba(255, 95, 98, .25); }
+
+    #status {
+      position: fixed;
+      left: 18px;
+      bottom: 18px;
+      z-index: 30;
+      max-width: 430px;
+      padding: 10px 13px;
+      color: var(--muted);
+      background: rgba(18, 24, 32, .84);
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(14px);
+      font-size: 13px;
+      line-height: 1.45;
+      pointer-events: none;
+    }
+    #status strong { color: var(--text); }
+
+    #viewport {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      cursor: default;
+      background:
+        radial-gradient(circle at 25% 10%, rgba(37,139,184,.12), transparent 28%),
+        radial-gradient(circle at 80% 80%, rgba(37,139,184,.10), transparent 32%),
+        #000;
+    }
+
+    #world {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 9000px;
+      height: 6000px;
+      transform-origin: 0 0;
+    }
+
+    #connections {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 9000px;
+      height: 6000px;
+      overflow: visible;
+      z-index: 1;
+    }
+
+    #nodes {
+      position: absolute;
+      left: 0;
+      top: 0;
+      z-index: 2;
+    }
+
+    .node {
+      position: absolute;
+      min-width: 170px;
+      min-height: 110px;
+      border: 3px solid var(--accent);
+      border-radius: 26px;
+      background: #777;
+      box-shadow: 0 12px 28px rgba(0,0,0,.28);
+      overflow: hidden;
+    }
+    .node.selected {
+      outline: 2px solid rgba(255,255,255,.72);
+      outline-offset: 3px;
+    }
+    .node.pending-source {
+      outline: 3px solid #ffffff;
+      outline-offset: 5px;
+    }
+
+    .node-header {
+      position: absolute;
+      left: -2px;
+      right: -2px;
+      top: -2px;
+      height: 46px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 14px;
+      border-bottom: 3px solid var(--accent);
+      border-radius: 24px 24px 0 0;
+      background: rgba(225,225,225,.18);
+    }
+
+    .drag-grip {
+      width: 28px;
+      flex: 0 0 28px;
+      color: rgba(0,0,0,.85);
+      cursor: grab;
+      font-size: 20px;
+      line-height: 1;
+      text-align: center;
+      opacity: .9;
+    }
+    .drag-grip:active { cursor: grabbing; }
+
+    .node-title {
+      width: 100%;
+      min-width: 0;
+      outline: none;
+      color: #fff;
+      font-size: 22px;
+      font-weight: 800;
+      line-height: 1.1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      padding: 3px 5px;
+      border-radius: 8px;
+    }
+    .node-title:focus {
+      background: rgba(255,255,255,.20);
+      white-space: normal;
+      overflow: visible;
+    }
+
+    .node-body {
+      position: absolute;
+      left: 18px;
+      right: 18px;
+      top: 60px;
+      bottom: 18px;
+      width: calc(100% - 36px);
+      height: calc(100% - 78px);
+      resize: none;
+      border: 0;
+      outline: none;
+      background: transparent;
+      color: rgba(255,255,255,.95);
+      font: 16px/1.45 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      user-select: text;
+    }
+    .node-body::placeholder { color: rgba(255,255,255,.58); }
+
+    .resize-handle {
+      position: absolute;
+      right: 8px;
+      bottom: 8px;
+      width: 18px;
+      height: 18px;
+      border-right: 3px solid rgba(255,255,255,.72);
+      border-bottom: 3px solid rgba(255,255,255,.72);
+      cursor: nwse-resize;
+      border-radius: 2px;
+      opacity: .85;
+    }
+
+    .connection-visible {
+      fill: none;
+      stroke: var(--line);
+      stroke-width: 4;
+      stroke-linecap: round;
+      pointer-events: none;
+      filter: drop-shadow(0 2px 3px rgba(0,0,0,.7));
+    }
+    .connection-hit {
+      fill: none;
+      stroke: transparent;
+      stroke-width: 18;
+      stroke-linecap: round;
+      cursor: pointer;
+      pointer-events: stroke;
+    }
+    .connection-hit:hover + .connection-visible,
+    .connection-visible.connection-hover {
+      stroke: #7ed6ff;
+    }
+
+    #contextMenu {
+      position: fixed;
+      min-width: 220px;
+      z-index: 80;
+      display: none;
+      padding: 7px;
+      background: rgba(18, 24, 32, .96);
+      border: 1px solid rgba(255,255,255,.10);
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(16px);
+    }
+    .menu-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      border: 0;
+      background: transparent;
+      color: var(--text);
+      padding: 10px 11px;
+      border-radius: 10px;
+      cursor: pointer;
+      text-align: left;
+      font-size: 14px;
+      font-weight: 650;
+    }
+    .menu-item:hover { background: rgba(255,255,255,.09); }
+    .menu-item.danger { color: #ffb5b7; }
+    .menu-item small { color: var(--muted); font-weight: 600; margin-left: 12px; }
+    .menu-separator { height: 1px; background: rgba(255,255,255,.09); margin: 6px 4px; }
+
+    #colorPicker, #importFile { display: none; }
+
+    .toast {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      z-index: 90;
+      max-width: 380px;
+      padding: 12px 14px;
+      color: var(--text);
+      background: rgba(18, 24, 32, .94);
+      border: 1px solid rgba(255,255,255,.10);
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+      opacity: 0;
+      transform: translateY(10px);
+      transition: .18s ease;
+      pointer-events: none;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .toast.show { opacity: 1; transform: translateY(0); }
+
+    @media (max-width: 760px) {
+      #toolbar {
+        left: 12px;
+        right: 12px;
+        transform: none;
+        overflow-x: auto;
+        justify-content: flex-start;
+        border-radius: 18px;
+      }
+      #status { display: none; }
+      .node-title { font-size: 18px; }
+    }
+  </style>
 </head>
 <body>
-  <main class="profile-card">
-    <h1>Hi, I'm Michinobu 👋</h1>
-
-    <p id="message">
-      Welcome to my interactive GitHub profile website.
-    </p>
-
-    <button onclick="changeMessage()">Click me</button>
-
-    <div class="links">
-      <a href="https://github.com/michinobuimai" target="_blank">GitHub</a>
-      <a href="https://github.com/michinobuimai/F.S.R.-Maze-Generator" target="_blank">Maze Generator</a>
+  <div id="app">
+    <div id="toolbar">
+      <button class="tool-btn" id="addBoxBtn">+ Box</button>
+      <button class="tool-btn" id="resetViewBtn">Reset view</button>
+      <button class="tool-btn" id="exportBtn">Export</button>
+      <button class="tool-btn" id="importBtn">Import</button>
+      <button class="tool-btn danger" id="clearBtn">Clear</button>
     </div>
-  </main>
 
-  <script src="script.js"></script>
+    <div id="viewport">
+      <div id="world">
+        <svg id="connections"></svg>
+        <div id="nodes"></div>
+      </div>
+    </div>
+
+    <div id="contextMenu"></div>
+    <input id="colorPicker" type="color" />
+    <input id="importFile" type="file" accept="application/json" />
+
+    <div id="status">
+      <strong>Controls:</strong> right-click canvas or boxes for options · drag the grip to move · drag corner to resize · mouse wheel to zoom · hold Space + drag to pan · connections define parent → child movement.
+    </div>
+    <div class="toast" id="toast"></div>
+  </div>
+
+  <script>
+    const STORAGE_KEY = "local-box-map-editor-v1";
+    const WORLD_W = 9000;
+    const WORLD_H = 6000;
+
+    const viewport = document.getElementById("viewport");
+    const world = document.getElementById("world");
+    const nodesLayer = document.getElementById("nodes");
+    const svg = document.getElementById("connections");
+    const menu = document.getElementById("contextMenu");
+    const colorPicker = document.getElementById("colorPicker");
+    const importFile = document.getElementById("importFile");
+    const toastEl = document.getElementById("toast");
+
+    let state = {
+      nodes: [],
+      connections: [],
+      zoom: 1,
+      panX: 40,
+      panY: 80,
+      selectedNodeId: null,
+      pendingConnectionFrom: null,
+      nextZ: 1
+    };
+
+    let context = { type: "canvas", x: 0, y: 0, nodeId: null, connectionId: null };
+    let isSpaceDown = false;
+    let isPanning = false;
+    let lastPanPoint = null;
+    let dragging = null;
+    let resizing = null;
+    let saveTimer = null;
+
+    const defaultColors = ["#777777", "#5f7f95", "#7a6a95", "#7f6c57", "#5f8c72", "#9a6464", "#a3a3a3", "#2f4050"];
+
+    function uid(prefix = "id") {
+      return prefix + "_" + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
+    }
+
+    function clamp(value, min, max) { return Math.max(min, Math.min(max, value)); }
+
+    function saveNow() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    }
+
+    function saveSoon() {
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(saveNow, 120);
+    }
+
+    function loadState() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return false;
+        const parsed = JSON.parse(raw);
+        if (!parsed || !Array.isArray(parsed.nodes)) return false;
+        state = Object.assign(state, parsed);
+        state.nodes = state.nodes || [];
+        state.connections = state.connections || [];
+        state.nextZ = state.nextZ || (state.nodes.length + 1);
+        return true;
+      } catch (err) {
+        console.warn("Could not load saved map", err);
+        return false;
+      }
+    }
+
+    function createDemo() {
+      const main = addNode({
+        title: "[click to change name]",
+        body: "Write inside this box...",
+        x: 140,
+        y: 120,
+        width: 520,
+        height: 380,
+        color: "#777777",
+        render: false
+      });
+      const child = addNode({
+        title: "Child box",
+        body: "Connected boxes follow when the parent is moved.",
+        x: 780,
+        y: 150,
+        width: 300,
+        height: 230,
+        color: "#adadad",
+        render: false
+      });
+      state.connections.push({ id: uid("conn"), from: main.id, to: child.id });
+      saveNow();
+    }
+
+    function applyTransform() {
+      world.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`;
+      updateStatus();
+    }
+
+    function screenToWorld(clientX, clientY) {
+      const rect = viewport.getBoundingClientRect();
+      return {
+        x: (clientX - rect.left - state.panX) / state.zoom,
+        y: (clientY - rect.top - state.panY) / state.zoom
+      };
+    }
+
+    function renderAll() {
+      nodesLayer.innerHTML = "";
+      state.nodes.forEach(node => renderNode(node));
+      drawConnections();
+      applyTransform();
+      updateSelectionClasses();
+      updateStatus();
+    }
+
+    function addNode(options = {}) {
+      const node = {
+        id: uid("node"),
+        title: options.title || "New box",
+        body: options.body || "",
+        x: Number.isFinite(options.x) ? options.x : 240,
+        y: Number.isFinite(options.y) ? options.y : 180,
+        width: options.width || 320,
+        height: options.height || 220,
+        color: options.color || defaultColors[Math.floor(Math.random() * defaultColors.length)],
+        z: state.nextZ++
+      };
+      state.nodes.push(node);
+      if (options.render !== false) {
+        renderNode(node);
+        drawConnections();
+        selectNode(node.id);
+        saveSoon();
+      }
+      return node;
+    }
+
+    function createNodeAt(clientX, clientY) {
+      const p = screenToWorld(clientX, clientY);
+      const node = addNode({ x: p.x - 160, y: p.y - 35, width: 320, height: 220 });
+      showToast("Box created. Right-click it for tools.");
+      return node;
+    }
+
+    function renderNode(node) {
+      const el = document.createElement("div");
+      el.className = "node";
+      el.dataset.id = node.id;
+      el.style.left = node.x + "px";
+      el.style.top = node.y + "px";
+      el.style.width = node.width + "px";
+      el.style.height = node.height + "px";
+      el.style.background = node.color;
+      el.style.zIndex = node.z || 1;
+
+      el.innerHTML = `
+        <div class="node-header">
+          <div class="drag-grip" title="Drag box">×</div>
+          <div class="node-title" contenteditable="true" spellcheck="false"></div>
+        </div>
+        <textarea class="node-body" placeholder="Write here..."></textarea>
+        <div class="resize-handle" title="Resize"></div>
+      `;
+
+      const title = el.querySelector(".node-title");
+      const body = el.querySelector(".node-body");
+      title.textContent = node.title;
+      body.value = node.body;
+
+      el.addEventListener("pointerdown", (e) => {
+        selectNode(node.id);
+        bringToFront(node.id);
+        if (e.target.classList.contains("drag-grip")) beginDrag(e, node.id);
+        if (e.target.classList.contains("resize-handle")) beginResize(e, node.id);
+      });
+
+      el.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        selectNode(node.id);
+        bringToFront(node.id);
+        openMenu(e.clientX, e.clientY, { type: "node", nodeId: node.id });
+      });
+
+      title.addEventListener("input", () => {
+        const n = findNode(node.id);
+        if (!n) return;
+        n.title = title.textContent.trim() || "Untitled";
+        saveSoon();
+      });
+
+      title.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          title.blur();
+        }
+      });
+
+      body.addEventListener("input", () => {
+        const n = findNode(node.id);
+        if (!n) return;
+        n.body = body.value;
+        saveSoon();
+      });
+
+      body.addEventListener("pointerdown", (e) => e.stopPropagation());
+      title.addEventListener("pointerdown", (e) => e.stopPropagation());
+
+      nodesLayer.appendChild(el);
+    }
+
+    function findNode(id) { return state.nodes.find(n => n.id === id); }
+    function nodeEl(id) { return nodesLayer.querySelector(`.node[data-id="${CSS.escape(id)}"]`); }
+
+    function selectNode(id) {
+      state.selectedNodeId = id;
+      updateSelectionClasses();
+      saveSoon();
+    }
+
+    function bringToFront(id) {
+      const n = findNode(id);
+      if (!n) return;
+      n.z = state.nextZ++;
+      const el = nodeEl(id);
+      if (el) el.style.zIndex = n.z;
+      saveSoon();
+    }
+
+    function updateSelectionClasses() {
+      document.querySelectorAll(".node").forEach(el => {
+        const id = el.dataset.id;
+        el.classList.toggle("selected", id === state.selectedNodeId);
+        el.classList.toggle("pending-source", id === state.pendingConnectionFrom);
+      });
+    }
+
+    function beginDrag(e, id) {
+      e.preventDefault();
+      e.stopPropagation();
+      const n = findNode(id);
+      if (!n) return;
+      dragging = { id, lastX: e.clientX, lastY: e.clientY };
+      document.body.style.cursor = "grabbing";
+      e.target.setPointerCapture?.(e.pointerId);
+    }
+
+    function beginResize(e, id) {
+      e.preventDefault();
+      e.stopPropagation();
+      const n = findNode(id);
+      if (!n) return;
+      resizing = { id, startX: e.clientX, startY: e.clientY, width: n.width, height: n.height };
+      document.body.style.cursor = "nwse-resize";
+      e.target.setPointerCapture?.(e.pointerId);
+    }
+
+    function collectDescendants(id, visited = new Set()) {
+      const kids = state.connections.filter(c => c.from === id).map(c => c.to);
+      for (const kid of kids) {
+        if (visited.has(kid)) continue;
+        visited.add(kid);
+        collectDescendants(kid, visited);
+      }
+      return visited;
+    }
+
+    function moveNodeAndChildren(id, dx, dy) {
+      const ids = new Set([id, ...collectDescendants(id)]);
+      ids.forEach(nodeId => {
+        const n = findNode(nodeId);
+        if (!n) return;
+        n.x += dx;
+        n.y += dy;
+        const el = nodeEl(nodeId);
+        if (el) {
+          el.style.left = n.x + "px";
+          el.style.top = n.y + "px";
+        }
+      });
+      drawConnections();
+      saveSoon();
+    }
+
+    document.addEventListener("pointermove", (e) => {
+      if (dragging) {
+        const dx = (e.clientX - dragging.lastX) / state.zoom;
+        const dy = (e.clientY - dragging.lastY) / state.zoom;
+        dragging.lastX = e.clientX;
+        dragging.lastY = e.clientY;
+        moveNodeAndChildren(dragging.id, dx, dy);
+      }
+
+      if (resizing) {
+        const n = findNode(resizing.id);
+        if (!n) return;
+        n.width = clamp(resizing.width + (e.clientX - resizing.startX) / state.zoom, 170, 1600);
+        n.height = clamp(resizing.height + (e.clientY - resizing.startY) / state.zoom, 110, 1200);
+        const el = nodeEl(resizing.id);
+        if (el) {
+          el.style.width = n.width + "px";
+          el.style.height = n.height + "px";
+        }
+        drawConnections();
+        saveSoon();
+      }
+
+      if (isPanning && lastPanPoint) {
+        state.panX += e.clientX - lastPanPoint.x;
+        state.panY += e.clientY - lastPanPoint.y;
+        lastPanPoint = { x: e.clientX, y: e.clientY };
+        applyTransform();
+        saveSoon();
+      }
+    });
+
+    document.addEventListener("pointerup", () => {
+      dragging = null;
+      resizing = null;
+      isPanning = false;
+      lastPanPoint = null;
+      document.body.style.cursor = "";
+    });
+
+    viewport.addEventListener("pointerdown", (e) => {
+      if (e.button === 1 || (e.button === 0 && isSpaceDown)) {
+        e.preventDefault();
+        isPanning = true;
+        lastPanPoint = { x: e.clientX, y: e.clientY };
+        document.body.style.cursor = "grabbing";
+        return;
+      }
+      if (e.target === viewport || e.target === world || e.target === svg) {
+        state.selectedNodeId = null;
+        updateSelectionClasses();
+      }
+    });
+
+    viewport.addEventListener("dblclick", (e) => {
+      if (e.target === viewport || e.target === world || e.target === svg) createNodeAt(e.clientX, e.clientY);
+    });
+
+    viewport.addEventListener("contextmenu", (e) => {
+      if (e.target.closest && e.target.closest(".node")) return;
+      e.preventDefault();
+      openMenu(e.clientX, e.clientY, { type: "canvas", x: e.clientX, y: e.clientY });
+    });
+
+    viewport.addEventListener("wheel", (e) => {
+      if (e.target && e.target.classList && e.target.classList.contains("node-body")) return;
+      e.preventDefault();
+      const before = screenToWorld(e.clientX, e.clientY);
+      const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+      state.zoom = clamp(state.zoom * factor, 0.18, 3.5);
+      const rect = viewport.getBoundingClientRect();
+      state.panX = e.clientX - rect.left - before.x * state.zoom;
+      state.panY = e.clientY - rect.top - before.y * state.zoom;
+      applyTransform();
+      saveSoon();
+    }, { passive: false });
+
+    document.addEventListener("keydown", (e) => {
+      if (e.code === "Space" && !isTyping()) {
+        isSpaceDown = true;
+        e.preventDefault();
+      }
+      if ((e.key === "Delete" || e.key === "Backspace") && state.selectedNodeId && !isTyping()) {
+        deleteNode(state.selectedNodeId);
+      }
+      if (e.key === "Escape") {
+        state.pendingConnectionFrom = null;
+        hideMenu();
+        updateSelectionClasses();
+        updateStatus();
+        saveSoon();
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        saveNow();
+        showToast("Saved locally in this browser.");
+      }
+    });
+
+    document.addEventListener("keyup", (e) => {
+      if (e.code === "Space") isSpaceDown = false;
+    });
+
+    document.addEventListener("click", (e) => {
+      if (!menu.contains(e.target)) hideMenu();
+      if (state.pendingConnectionFrom) {
+        const targetNode = e.target.closest?.(".node");
+        if (targetNode) {
+          const targetId = targetNode.dataset.id;
+          if (targetId !== state.pendingConnectionFrom) connectNodes(state.pendingConnectionFrom, targetId);
+        }
+      }
+    });
+
+    function isTyping() {
+      const a = document.activeElement;
+      return a && (a.tagName === "TEXTAREA" || a.isContentEditable || a.tagName === "INPUT");
+    }
+
+    function drawConnections() {
+      svg.innerHTML = `
+        <defs>
+          <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+            <path d="M2,2 L10,6 L2,10 Z" fill="#e9eef5"></path>
+          </marker>
+        </defs>
+      `;
+
+      state.connections = state.connections.filter(c => findNode(c.from) && findNode(c.to));
+
+      for (const c of state.connections) {
+        const a = findNode(c.from);
+        const b = findNode(c.to);
+        if (!a || !b) continue;
+
+        const x1 = a.x + a.width;
+        const y1 = a.y + a.height * 0.36;
+        const x2 = b.x;
+        const y2 = b.y + b.height * 0.36;
+        const dx = Math.max(80, Math.abs(x2 - x1) * 0.45);
+        const d = `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
+
+        const hit = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        hit.setAttribute("d", d);
+        hit.setAttribute("class", "connection-hit");
+        hit.dataset.id = c.id;
+        hit.addEventListener("contextmenu", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          openMenu(e.clientX, e.clientY, { type: "connection", connectionId: c.id });
+        });
+
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.setAttribute("d", d);
+        path.setAttribute("class", "connection-visible");
+        path.setAttribute("marker-end", "url(#arrow)");
+
+        svg.appendChild(hit);
+        svg.appendChild(path);
+      }
+    }
+
+    function pathExists(from, to, visited = new Set()) {
+      if (from === to) return true;
+      visited.add(from);
+      const next = state.connections.filter(c => c.from === from).map(c => c.to);
+      for (const id of next) {
+        if (visited.has(id)) continue;
+        if (pathExists(id, to, visited)) return true;
+      }
+      return false;
+    }
+
+    function connectNodes(from, to) {
+      if (from === to) {
+        showToast("A box cannot connect to itself.");
+        return;
+      }
+      if (!findNode(from) || !findNode(to)) return;
+      if (state.connections.some(c => c.from === from && c.to === to)) {
+        showToast("These boxes are already connected.");
+        state.pendingConnectionFrom = null;
+        updateSelectionClasses();
+        updateStatus();
+        return;
+      }
+      if (pathExists(to, from)) {
+        showToast("Connection blocked because it would create a loop.");
+        state.pendingConnectionFrom = null;
+        updateSelectionClasses();
+        updateStatus();
+        return;
+      }
+      state.connections.push({ id: uid("conn"), from, to });
+      state.pendingConnectionFrom = null;
+      drawConnections();
+      updateSelectionClasses();
+      updateStatus();
+      saveSoon();
+      showToast("Connected. The child will now follow when the parent moves.");
+    }
+
+    function deleteNode(id) {
+      const n = findNode(id);
+      if (!n) return;
+      const ok = confirm(`Delete "${n.title}" and its connections?`);
+      if (!ok) return;
+      state.nodes = state.nodes.filter(node => node.id !== id);
+      state.connections = state.connections.filter(c => c.from !== id && c.to !== id);
+      if (state.selectedNodeId === id) state.selectedNodeId = null;
+      if (state.pendingConnectionFrom === id) state.pendingConnectionFrom = null;
+      renderAll();
+      saveSoon();
+    }
+
+    function deleteConnection(id) {
+      state.connections = state.connections.filter(c => c.id !== id);
+      drawConnections();
+      saveSoon();
+      showToast("Connection deleted.");
+    }
+
+    function reverseConnection(id) {
+      const c = state.connections.find(c => c.id === id);
+      if (!c) return;
+      const oldFrom = c.from;
+      const oldTo = c.to;
+
+      // Reversing oldFrom → oldTo into oldTo → oldFrom is only illegal
+      // when another path from oldFrom to oldTo already exists.
+      const remaining = state.connections.filter(item => item.id !== id);
+      const originalConnections = state.connections;
+      state.connections = remaining;
+      const wouldLoop = pathExists(oldFrom, oldTo);
+      state.connections = originalConnections;
+
+      if (wouldLoop) {
+        showToast("Cannot reverse because it would create a loop.");
+        return;
+      }
+
+      c.from = oldTo;
+      c.to = oldFrom;
+      drawConnections();
+      saveSoon();
+    }
+
+    function openMenu(clientX, clientY, ctx) {
+      context = ctx;
+      menu.innerHTML = "";
+
+      if (ctx.type === "canvas") buildCanvasMenu(clientX, clientY);
+      if (ctx.type === "node") buildNodeMenu(ctx.nodeId);
+      if (ctx.type === "connection") buildConnectionMenu(ctx.connectionId);
+
+      const pad = 10;
+      menu.style.display = "block";
+      const rect = menu.getBoundingClientRect();
+      const x = Math.min(clientX, window.innerWidth - rect.width - pad);
+      const y = Math.min(clientY, window.innerHeight - rect.height - pad);
+      menu.style.left = Math.max(pad, x) + "px";
+      menu.style.top = Math.max(pad, y) + "px";
+    }
+
+    function hideMenu() { menu.style.display = "none"; }
+
+    function menuButton(label, shortcut, fn, danger = false) {
+      const btn = document.createElement("button");
+      btn.className = "menu-item" + (danger ? " danger" : "");
+      btn.innerHTML = `<span>${label}</span>${shortcut ? `<small>${shortcut}</small>` : ""}`;
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        hideMenu();
+        fn();
+      });
+      menu.appendChild(btn);
+    }
+
+    function separator() {
+      const div = document.createElement("div");
+      div.className = "menu-separator";
+      menu.appendChild(div);
+    }
+
+    function buildCanvasMenu(x, y) {
+      menuButton("Create box here", "double-click", () => createNodeAt(x, y));
+      if (state.pendingConnectionFrom) {
+        menuButton("Cancel connection", "Esc", () => {
+          state.pendingConnectionFrom = null;
+          updateSelectionClasses();
+          updateStatus();
+          saveSoon();
+        });
+      }
+      separator();
+      menuButton("Reset view", "", resetView);
+      menuButton("Save now", "Ctrl+S", () => { saveNow(); showToast("Saved locally in this browser."); });
+    }
+
+    function buildNodeMenu(id) {
+      const n = findNode(id);
+      if (!n) return;
+      menuButton("Rename", "", () => focusTitle(id));
+      menuButton("Edit text", "", () => focusBody(id));
+      menuButton("Change color", "", () => pickColor(id));
+      separator();
+      menuButton("Create child box", "", () => createChildBox(id));
+      menuButton("Connect from this box", "", () => startConnection(id));
+      if (state.pendingConnectionFrom && state.pendingConnectionFrom !== id) {
+        menuButton("Connect selected to this", "", () => connectNodes(state.pendingConnectionFrom, id));
+      }
+      menuButton("Remove this box's connections", "", () => {
+        state.connections = state.connections.filter(c => c.from !== id && c.to !== id);
+        drawConnections();
+        saveSoon();
+      });
+      separator();
+      menuButton("Duplicate", "", () => duplicateNode(id));
+      menuButton("Bring to front", "", () => bringToFront(id));
+      menuButton("Delete box", "Del", () => deleteNode(id), true);
+    }
+
+    function buildConnectionMenu(id) {
+      menuButton("Delete connection", "", () => deleteConnection(id), true);
+      menuButton("Reverse direction", "", () => reverseConnection(id));
+    }
+
+    function focusTitle(id) {
+      const el = nodeEl(id)?.querySelector(".node-title");
+      if (!el) return;
+      el.focus();
+      document.execCommand?.("selectAll", false, null);
+    }
+
+    function focusBody(id) {
+      const el = nodeEl(id)?.querySelector(".node-body");
+      if (!el) return;
+      el.focus();
+    }
+
+    function pickColor(id) {
+      const n = findNode(id);
+      if (!n) return;
+      colorPicker.value = normalizeHex(n.color) || "#777777";
+      colorPicker.oninput = () => {
+        const node = findNode(id);
+        if (!node) return;
+        node.color = colorPicker.value;
+        const el = nodeEl(id);
+        if (el) el.style.background = node.color;
+        saveSoon();
+      };
+      colorPicker.click();
+    }
+
+    function normalizeHex(color) {
+      if (/^#[0-9a-f]{6}$/i.test(color)) return color;
+      const ctx = document.createElement("canvas").getContext("2d");
+      ctx.fillStyle = color;
+      return ctx.fillStyle;
+    }
+
+    function createChildBox(parentId) {
+      const parent = findNode(parentId);
+      if (!parent) return;
+      const child = addNode({
+        title: "Child box",
+        body: "",
+        x: parent.x + parent.width + 140,
+        y: parent.y + 30,
+        width: Math.max(240, Math.min(340, parent.width * 0.58)),
+        height: Math.max(160, Math.min(240, parent.height * 0.52)),
+        color: "#aaaaaa"
+      });
+      state.connections.push({ id: uid("conn"), from: parentId, to: child.id });
+      drawConnections();
+      selectNode(child.id);
+      saveSoon();
+      showToast("Child box created and connected.");
+    }
+
+    function startConnection(id) {
+      state.pendingConnectionFrom = id;
+      updateSelectionClasses();
+      updateStatus();
+      saveSoon();
+      showToast("Click another box to connect it as a child. Press Esc to cancel.");
+    }
+
+    function duplicateNode(id) {
+      const n = findNode(id);
+      if (!n) return;
+      addNode({
+        title: n.title + " copy",
+        body: n.body,
+        x: n.x + 40,
+        y: n.y + 40,
+        width: n.width,
+        height: n.height,
+        color: n.color
+      });
+    }
+
+    function resetView() {
+      state.zoom = 1;
+      state.panX = 40;
+      state.panY = 80;
+      applyTransform();
+      saveSoon();
+    }
+
+    function updateStatus() {
+      const status = document.getElementById("status");
+      const zoomPct = Math.round(state.zoom * 100);
+      const pending = state.pendingConnectionFrom ? " · connection mode active" : "";
+      status.innerHTML = `<strong>Controls:</strong> right-click canvas or boxes for options · drag the grip to move · drag corner to resize · mouse wheel to zoom (${zoomPct}%) · hold Space + drag to pan${pending}.`;
+    }
+
+    function showToast(message) {
+      toastEl.textContent = message;
+      toastEl.classList.add("show");
+      clearTimeout(showToast.timer);
+      showToast.timer = setTimeout(() => toastEl.classList.remove("show"), 2400);
+    }
+
+    document.getElementById("addBoxBtn").addEventListener("click", () => {
+      const rect = viewport.getBoundingClientRect();
+      createNodeAt(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    });
+    document.getElementById("resetViewBtn").addEventListener("click", resetView);
+    document.getElementById("clearBtn").addEventListener("click", () => {
+      if (!confirm("Clear all boxes and saved local data?")) return;
+      localStorage.removeItem(STORAGE_KEY);
+      state.nodes = [];
+      state.connections = [];
+      state.selectedNodeId = null;
+      state.pendingConnectionFrom = null;
+      state.nextZ = 1;
+      resetView();
+      createDemo();
+      renderAll();
+      showToast("Cleared and restored demo boxes.");
+    });
+
+    document.getElementById("exportBtn").addEventListener("click", () => {
+      saveNow();
+      const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "box-map-export.json";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    });
+
+    document.getElementById("importBtn").addEventListener("click", () => importFile.click());
+    importFile.addEventListener("change", async () => {
+      const file = importFile.files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const imported = JSON.parse(text);
+        if (!Array.isArray(imported.nodes) || !Array.isArray(imported.connections)) throw new Error("Invalid file");
+        state = Object.assign(state, imported);
+        saveNow();
+        renderAll();
+        showToast("Imported map and saved it locally.");
+      } catch (err) {
+        alert("Could not import this file. Please use a valid export JSON.");
+      } finally {
+        importFile.value = "";
+      }
+    });
+
+    // Init
+    svg.setAttribute("width", WORLD_W);
+    svg.setAttribute("height", WORLD_H);
+    if (!loadState()) createDemo();
+    renderAll();
+  </script>
 </body>
 </html>
