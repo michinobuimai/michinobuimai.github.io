@@ -145,7 +145,7 @@
       display: flex;
       align-items: center;
       gap: 8px;
-      padding: 0 14px;
+      padding: 0 10px 0 14px;
       border-bottom: 3px solid var(--accent);
       border-radius: 24px 24px 0 0;
       background: rgba(225,225,225,.18);
@@ -163,8 +163,25 @@
     }
     .drag-grip:active { cursor: grabbing; }
 
+    .delete-node {
+      width: 28px;
+      height: 28px;
+      flex: 0 0 28px;
+      display: grid;
+      place-items: center;
+      border: 0;
+      border-radius: 999px;
+      background: rgba(0,0,0,.22);
+      color: rgba(255,255,255,.96);
+      cursor: pointer;
+      font-size: 22px;
+      font-weight: 900;
+      line-height: 1;
+    }
+    .delete-node:hover { background: rgba(255,95,98,.72); }
+
     .node-title {
-      width: 100%;
+      flex: 1 1 auto;
       min-width: 0;
       outline: none;
       color: #fff;
@@ -440,6 +457,7 @@
       nodesLayer.innerHTML = "";
       state.nodes.forEach(node => renderNode(node));
       drawConnections();
+      applyZOrder();
       applyTransform();
       updateSelectionClasses();
       updateStatus();
@@ -483,12 +501,13 @@
       el.style.width = node.width + "px";
       el.style.height = node.height + "px";
       el.style.background = node.color;
-      el.style.zIndex = node.z || 1;
+      el.style.zIndex = getRenderZ(node.id);
 
       el.innerHTML = `
         <div class="node-header">
-          <div class="drag-grip" title="Drag box">×</div>
+          <div class="drag-grip" title="Drag box">⠿</div>
           <div class="node-title" contenteditable="true" spellcheck="false"></div>
+          <button class="delete-node" title="Delete box" aria-label="Delete box">×</button>
         </div>
         <textarea class="node-body" placeholder="Write here..."></textarea>
         <div class="resize-handle" title="Resize"></div>
@@ -496,8 +515,19 @@
 
       const title = el.querySelector(".node-title");
       const body = el.querySelector(".node-body");
+      const deleteBtn = el.querySelector(".delete-node");
       title.textContent = node.title;
       body.value = node.body;
+
+      deleteBtn.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      });
+      deleteBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        deleteNode(node.id, { confirm: false });
+      });
 
       el.addEventListener("pointerdown", (e) => {
         selectNode(node.id);
@@ -550,12 +580,40 @@
       saveSoon();
     }
 
+    function getNodeDepth(id, memo = new Map(), stack = new Set()) {
+      if (memo.has(id)) return memo.get(id);
+      if (stack.has(id)) return 0;
+      stack.add(id);
+      const parents = state.connections.filter(c => c.to === id).map(c => c.from);
+      let depth = 0;
+      for (const parentId of parents) {
+        if (!findNode(parentId)) continue;
+        depth = Math.max(depth, getNodeDepth(parentId, memo, stack) + 1);
+      }
+      stack.delete(id);
+      memo.set(id, depth);
+      return depth;
+    }
+
+    function getRenderZ(id, memo) {
+      const n = findNode(id);
+      if (!n) return 1;
+      return getNodeDepth(id, memo) * 1000000 + (n.z || 1);
+    }
+
+    function applyZOrder() {
+      const memo = new Map();
+      state.nodes.forEach(n => {
+        const el = nodeEl(n.id);
+        if (el) el.style.zIndex = getRenderZ(n.id, memo);
+      });
+    }
+
     function bringToFront(id) {
       const n = findNode(id);
       if (!n) return;
       n.z = state.nextZ++;
-      const el = nodeEl(id);
-      if (el) el.style.zIndex = n.z;
+      applyZOrder();
       saveSoon();
     }
 
@@ -810,17 +868,21 @@
       state.connections.push({ id: uid("conn"), from, to });
       state.pendingConnectionFrom = null;
       drawConnections();
+      applyZOrder();
       updateSelectionClasses();
       updateStatus();
       saveSoon();
       showToast("Connected. The child will now follow when the parent moves.");
     }
 
-    function deleteNode(id) {
+    function deleteNode(id, options = {}) {
       const n = findNode(id);
       if (!n) return;
-      const ok = confirm(`Delete "${n.title}" and its connections?`);
-      if (!ok) return;
+      const needsConfirm = options.confirm !== false;
+      if (needsConfirm) {
+        const ok = confirm(`Delete "${n.title}" and its connections?`);
+        if (!ok) return;
+      }
       state.nodes = state.nodes.filter(node => node.id !== id);
       state.connections = state.connections.filter(c => c.from !== id && c.to !== id);
       if (state.selectedNodeId === id) state.selectedNodeId = null;
@@ -839,24 +901,11 @@
     function reverseConnection(id) {
       const c = state.connections.find(c => c.id === id);
       if (!c) return;
-      const oldFrom = c.from;
-      const oldTo = c.to;
-
-      // Reversing oldFrom → oldTo into oldTo → oldFrom is only illegal
-      // when another path from oldFrom to oldTo already exists.
-      const remaining = state.connections.filter(item => item.id !== id);
-      const originalConnections = state.connections;
-      state.connections = remaining;
-      const wouldLoop = pathExists(oldFrom, oldTo);
-      state.connections = originalConnections;
-
-      if (wouldLoop) {
+      if (pathExists(c.from, c.to)) {
         showToast("Cannot reverse because it would create a loop.");
         return;
       }
-
-      c.from = oldTo;
-      c.to = oldFrom;
+      [c.from, c.to] = [c.to, c.from];
       drawConnections();
       saveSoon();
     }
@@ -990,6 +1039,7 @@
       });
       state.connections.push({ id: uid("conn"), from: parentId, to: child.id });
       drawConnections();
+      applyZOrder();
       selectNode(child.id);
       saveSoon();
       showToast("Child box created and connected.");
@@ -1029,7 +1079,7 @@
       const status = document.getElementById("status");
       const zoomPct = Math.round(state.zoom * 100);
       const pending = state.pendingConnectionFrom ? " · connection mode active" : "";
-      status.innerHTML = `<strong>Controls:</strong> right-click canvas or boxes for options · drag the grip to move · drag corner to resize · mouse wheel to zoom (${zoomPct}%) · hold Space + drag to pan${pending}.`;
+      status.innerHTML = `<strong>Controls:</strong> right-click canvas or boxes for options · click × to delete · drag the grip to move · drag corner to resize · mouse wheel to zoom (${zoomPct}%) · hold Space + drag to pan${pending}.`;
     }
 
     function showToast(message) {
